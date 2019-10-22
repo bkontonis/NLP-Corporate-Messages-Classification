@@ -13,7 +13,7 @@ For the above-mentioned optimization I use `GridSearchCV` and grid search some p
 
 
 ## Dependencies
-* Python 3.5+ (I used Python 3.7.4)
+* Python 3.5+ (I used Python 3.6.8)
 * Machine Learning Libraries: NumPy, Pandas, Sciki-Learn
 * Natural Language Process Libraries: NLTK, word_tokenize, WordNetLemmatizer
 
