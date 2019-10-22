@@ -1,0 +1,182 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.1'
+      jupytext_version: 1.2.1
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
+
+# Corporate Messaging Case Study
+
+In this Notebook we will create a text message classification process. This corporate message data is from one of the free datasets provided on the [Figure Eight Platform](https://www.figure-eight.com/data-for-everyone/), licensed under a [Creative Commons Attribution 4.0 International License](https://creativecommons.org/licenses/by/4.0/).
+
+I use NLP to process text data and then apply a classifier that predicts under which of the three categories each message falls under.
+
+For the NLP part I use a custom transormer, which is in the `custom_transformer.py` file that I import a few lines below.
+
+The whole process is incorporated in a pipeline, which makes very clear the order in which each step is applied and also easier to optimize any step from the data processing to modeling.
+
+For the above-mentioned optimization I use `GridSearchCV` and grid search some parameters in the data transformation steps as well as those for the classifier. After the grid search step we have the optimal parameters for all the steps applied in the pipeline.
+
+```{python}
+import nltk
+nltk.download(['punkt', 'wordnet', 'averaged_perceptron_tagger'])
+```
+
+```{python}
+import re
+import numpy as np
+import pandas as pd
+from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer
+import joblib
+
+from sklearn.metrics import confusion_matrix
+from sklearn.model_selection import GridSearchCV
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline, FeatureUnion
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
+```
+
+## Import a custom transformer
+Import custom transformer that extracts whether each text starts with a verb.
+
+```{python}
+from custom_transformer import *
+```
+
+### Create the `load_data` function
+This function loads the data from the csv file and creates the X and y
+
+```{python}
+def load_data():
+    df = pd.read_csv('corporate_messaging.csv', encoding='latin-1')
+    df = df[(df["category:confidence"] == 1) & (df['category'] != 'Exclude')]
+    X = df.text.values
+    y = df.category.values
+    return X, y
+```
+
+### Build a pipeline for the whole process, from text data manipulation to classifier
+Before modifying the build_model method to include grid search, view the parameters in your pipeline here.
+
+```{python}
+pipeline = Pipeline([
+    ('features', FeatureUnion([
+
+        ('text_pipeline', Pipeline([
+            ('vect', CountVectorizer(tokenizer=tokenize)),
+            ('tfidf', TfidfTransformer())
+        ])),
+
+        ('starting_verb', StartingVerbExtractor())
+    ])),
+
+    ('clf', RandomForestClassifier())
+])
+```
+
+```{python}
+pipeline.get_params()
+```
+
+### Create the `build_model` function
+This method applies the pipeline and also tries to grid search some parameters in the data transformation steps as well as those for the classifier! Browse the parameters you can search above.
+It returns a GridSearchCV object.
+
+```{python}
+def build_model():
+    pipeline = Pipeline([
+        ('features', FeatureUnion([
+
+            ('text_pipeline', Pipeline([
+                ('vect', CountVectorizer(tokenizer=tokenize)),
+                ('tfidf', TfidfTransformer())
+            ])),
+
+            ('starting_verb', StartingVerbExtractor())
+        ])),
+
+        ('clf', RandomForestClassifier())
+    ])
+
+    parameters = {
+        'features__text_pipeline__vect__ngram_range': ((1, 1), (1, 2)),
+        'features__text_pipeline__vect__max_df': (0.5, 0.75, 1.0),
+        'features__text_pipeline__vect__max_features': (None, 5000, 10000),
+        'features__text_pipeline__tfidf__use_idf': (True, False),
+        'clf__n_estimators': [50, 100, 200],
+        'clf__min_samples_split': [2, 3, 4],
+        'features__transformer_weights': (
+            {'text_pipeline': 1, 'starting_verb': 0.5},
+            {'text_pipeline': 0.5, 'starting_verb': 1},
+            {'text_pipeline': 0.8, 'starting_verb': 1},
+        )
+    }
+
+    cv = GridSearchCV(pipeline, param_grid=parameters, verbose=3)
+
+    return cv
+```
+
+### Create `save_final_model` function
+This function saves the best model from the `build_model` step.
+
+```{python}
+def save_final_model(model, filename='final_model.pkl'):
+    joblib.dump(model, filename)
+```
+
+### Run program to test
+Running grid search can take a while, especially if you are searching over a lot of parameters! If you want to reduce it to a few minutes, try commenting out some of your parameters to grid search over just 1 or 2 parameters with a small number of values each.
+
+```{python}
+def display_results(cv, y_test, y_pred):
+    labels = np.unique(y_pred)
+    confusion_mat = confusion_matrix(y_test, y_pred, labels=labels)
+    accuracy = (y_pred == y_test).mean()
+
+    print("Labels:", labels)
+    print("Confusion Matrix:\n", confusion_mat)
+    print("Accuracy:", accuracy)
+    print("\nBest Parameters:", cv.best_params_)
+
+
+def main():
+    X, y = load_data()
+    X_train, X_test, y_train, y_test = train_test_split(X, y)
+
+    model = build_model()
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+
+    display_results(model, y_test, y_pred)
+    
+    save_final_model(model, filename='final_model.pkl')
+
+main()
+```
+
+### Import the final and saved model to make predictions later on
+In the cells below we import the saved model as a nest step, in order to use it for new messages prediction.
+
+```{python}
+def load_final_model(filename='final_model.pkl'):
+    return joblib.load(filename)
+```
+
+```{python}
+model = load_final_model()
+```
+
+```{python}
+
+```
